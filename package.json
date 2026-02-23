@@ -1,0 +1,13 @@
+{
+  "name": "cs2-strat-relay",
+  "version": "1.0.0",
+  "description": "Lightweight WebSocket relay for CS2 Strat Giver team mode",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
