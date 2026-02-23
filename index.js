@@ -2,9 +2,11 @@
 // A dumb WebSocket forwarder with room-based routing.
 // Deploy to Render/Fly.io free tier. Knows nothing about CS2.
 
+import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
+const PING_INTERVAL = 25_000; // 25s — under Render's idle timeout
 
 /** @type {Map<string, Set<import('ws').WebSocket>>} */
 const rooms = new Map();
@@ -12,9 +14,20 @@ const rooms = new Map();
 /** @type {Map<import('ws').WebSocket, { roomCode: string, steamId: string, name: string, role: string }>} */
 const clients = new Map();
 
-const wss = new WebSocketServer({ port: PORT });
+// HTTP server for Render health checks
+const server = createServer((req, res) => {
+  const roomCount = rooms.size;
+  const clientCount = clients.size;
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok', rooms: roomCount, clients: clientCount }));
+});
+
+const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
   ws.on('message', (raw) => {
     let msg;
     try {
@@ -107,4 +120,23 @@ function broadcast(roomCode, sender, message) {
   }
 }
 
-console.log(`CS2 Strat Relay listening on port ${PORT}`);
+// Ping/pong keepalive — detect and clean up dead connections
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      // Connection didn't respond to last ping — terminate it
+      const info = clients.get(ws);
+      if (info) {
+        console.log(`[${info.roomCode}] ${info.name} timed out, terminating`);
+      }
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, PING_INTERVAL);
+
+server.listen(PORT, () => {
+  console.log(`CS2 Strat Relay listening on port ${PORT}`);
+});
